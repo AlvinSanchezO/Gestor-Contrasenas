@@ -1,3 +1,4 @@
+// server.js
 const express = require('express');
 const app = express();
 const port = 3000;
@@ -8,10 +9,10 @@ const swaggerSpec = require('./src/config/swagger.js');
 
 app.use(express.json());
 
-// Ruta para ver la documentación (La pantalla azul)
+// Ruta de Documentación
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// --- RUTA BASE SIN COMENTARIOS SWAGGER POR AHORA ---
+// Ruta Base
 app.get('/', (req, res) => {
   res.send('¡Servidor del Gestor de Contraseñas funcionando!');
 });
