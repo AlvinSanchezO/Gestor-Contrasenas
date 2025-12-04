@@ -4,17 +4,20 @@ const { encrypt, decrypt } = require('../utils/encryption');
 const defineCredential = require('../models/Credential');
 const sequelize = require('../config/database');
 
+// Inicializar el modelo
 const Credential = defineCredential(sequelize);
 
-// --- UTILIDAD ---
+// --- UTILIDAD: Generar llave de 32 bytes desde un texto ---
 function deriveKey(password) {
     return crypto.createHash('sha256').update(password).digest();
 }
 
-// --- LÓGICA DE NEGOCIO ---
+// --- LÓGICA DE NEGOCIO (Cifrado/Descifrado) ---
+
 function addCredentialLogic(data, masterKey) {
     try {
         const { site_name, site_url, username, password, notes } = data;
+        
         const cipherPass = encrypt(password, masterKey);
         const cipherUser = encrypt(username, masterKey);
         const cipherNotes = notes ? encrypt(notes, masterKey) : { content: "" };
@@ -29,7 +32,7 @@ function addCredentialLogic(data, masterKey) {
             auth_tag: cipherPass.authTag
         };
     } catch (error) {
-        throw new Error("Error cifrando: " + error.message);
+        throw new Error("Error cifrando credencial: " + error.message);
     }
 }
 
@@ -49,14 +52,9 @@ function decryptCredentialLogic(credentialDb, masterKey) {
         if (credentialDb.enc_username) {
              const secureBlobUser = {
                 content: credentialDb.enc_username,
-                iv: credentialDb.iv, // Reusamos IV por simplicidad en este diseño MVP
+                iv: credentialDb.iv, // Reusamos IV por simplicidad en este MVP
                 authTag: credentialDb.auth_tag 
             };
-            // Nota: En un diseño prod, cada campo debería tener su IV/Tag, 
-            // pero para este MVP asumimos que 'enc_username' se puede leer o devolvemos el blob.
-            // Para simplificar y evitar errores de IV reusado en la desencriptación estricta,
-            // en este paso del tutorial devolveremos el username cifrado visualmente
-            // O, si usamos el mismo IV/Tag del insert, intentamos descifrar:
              const tryUser = decrypt(secureBlobUser, masterKey);
              if(tryUser) decryptedUser = tryUser;
         }
@@ -66,46 +64,54 @@ function decryptCredentialLogic(credentialDb, masterKey) {
             site_name: credentialDb.site_name,
             site_url: credentialDb.site_url,
             username: decryptedUser, 
-            password: decryptedPass, // ¡Aquí está la contraseña real!
-            notes: "Nota cifrada" // Simplificación para el ejercicio
+            password: decryptedPass, 
+            notes: "Nota cifrada" 
         };
     } catch (error) {
         return null;
     }
 }
 
-// --- CONTROLADORES EXPORTABLES ---
+// --- CONTROLADORES EXPRESS ---
 
-// 1. Guardar (POST)
+// 1. Guardar nueva credencial (POST)
 const createCredential = async (req, res) => {
     try {
         const userId = req.user.id;
         const { site_name, site_url, username, password, notes } = req.body;
-        const userKeyRaw = req.headers['x-secret-key'];
         
-        if (!userKeyRaw) return res.status(400).json({ error: 'Falta x-secret-key' });
+        // Obtener clave maestra del header
+        const userKeyRaw = req.headers['x-secret-key'];
+        if (!userKeyRaw) {
+            return res.status(400).json({ error: 'Falta la cabecera "x-secret-key" para cifrar' });
+        }
         
         const masterKey = deriveKey(userKeyRaw);
 
+        // Cifrar datos
         const encryptedData = addCredentialLogic(
             { site_name, site_url, username, password, notes }, 
             masterKey
         );
 
+        // Guardar en BD
         const newCredential = await Credential.create({
             user_id: userId,
             ...encryptedData
         });
 
-        res.status(201).json({ message: 'Guardado', id: newCredential.id });
+        res.status(201).json({ 
+            message: 'Credencial cifrada y guardada exitosamente', 
+            id: newCredential.id 
+        });
 
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error guardando' });
+        console.error("Error guardando:", error);
+        res.status(500).json({ error: 'Error al guardar la credencial' });
     }
 };
 
-// 2. Obtener Todas (GET) - ¡NUEVO!
+// 2. Obtener todas las credenciales (GET)
 const getAllCredentials = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -117,13 +123,13 @@ const getAllCredentials = async (req, res) => {
 
         const masterKey = deriveKey(userKeyRaw);
 
-        // 1. Buscar todo lo de este usuario
+        // Buscar en BD
         const credentials = await Credential.findAll({ where: { user_id: userId } });
 
-        // 2. Descifrar una por una
+        // Descifrar lista
         const decryptedList = credentials.map(cred => {
             return decryptCredentialLogic(cred, masterKey);
-        }).filter(cred => cred !== null); // Quitar las que no se pudieron descifrar
+        }).filter(cred => cred !== null);
 
         res.json(decryptedList);
 
@@ -133,7 +139,34 @@ const getAllCredentials = async (req, res) => {
     }
 };
 
+// 3. Eliminar Credencial (DELETE)
+const deleteCredential = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.id;
+
+        // Verificar que la credencial exista y pertenezca al usuario
+        const credential = await Credential.findOne({ 
+            where: { id: id, user_id: userId } 
+        });
+
+        if (!credential) {
+            return res.status(404).json({ error: 'Credencial no encontrada o no tienes permiso' });
+        }
+
+        // Eliminar
+        await credential.destroy();
+
+        res.json({ message: 'Credencial eliminada correctamente' });
+
+    } catch (error) {
+        console.error("Error eliminando:", error);
+        res.status(500).json({ error: 'Error al eliminar la credencial' });
+    }
+};
+
 module.exports = { 
     createCredential, 
-    getAllCredentials 
+    getAllCredentials,
+    deleteCredential 
 };
