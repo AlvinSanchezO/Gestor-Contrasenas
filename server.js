@@ -1,30 +1,36 @@
 // server.js
+require('dotenv').config(); // Cargar variables de entorno (JWT_SECRET)
 const express = require('express');
 const app = express();
 const port = 3000;
 
 // --- IMPORTACIONES ---
-// 1. Configuración de Swagger (Documentación)
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./src/config/swagger.js');
-
-// 2. Importar Rutas
 const authRoutes = require('./src/routes/authRoutes');
+const verifyToken = require('./src/middleware/authMiddleware'); // <--- NUEVO: El Guardia
 
-// --- MIDDLEWARE ---
-// Permite que el servidor entienda datos en formato JSON (necesario para POST)
-app.use(express.json());
+// --- MIDDLEWARES GLOBALES ---
+app.use(express.json()); // Entender JSON
 
-// --- RUTAS DE DOCUMENTACIÓN ---
-// Accede aquí: http://localhost:3000/api-docs
+// --- DOCUMENTACIÓN (Swagger) ---
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// --- RUTAS DE LA API ---
-// Aquí conectamos el módulo de autenticación
-// La ruta final será: http://localhost:3000/api/auth/register
+// --- RUTAS DE AUTENTICACIÓN (Login/Registro) ---
 app.use('/api/auth', authRoutes);
 
-// --- RUTA BASE (Prueba simple) ---
+
+// --- RUTA PROTEGIDA DE PRUEBA (SOLO PARA PROBAR EL TOKEN) ---
+// Fíjate que 'verifyToken' está en medio. Si no tienes token, no pasas.
+app.get('/api/test-protegido', verifyToken, (req, res) => {
+    res.json({ 
+        message: '¡Felicidades! Entraste a la zona VIP.', 
+        usuario: req.user // Te muestra los datos que venían dentro de tu Token
+    });
+});
+
+
+// --- RUTA BASE (Estado del servidor) ---
 app.get('/', (req, res) => {
   res.send('¡Servidor del Gestor de Contraseñas funcionando!');
 });
