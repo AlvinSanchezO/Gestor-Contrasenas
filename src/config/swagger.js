@@ -14,7 +14,7 @@ const options = {
     },
     servers: [
       {
-        url: 'http://localhost:3000/api', // IMPORTANTE: Agregamos /api como prefijo estándar
+        url: 'http://localhost:3000/api', // Prefijo estándar
         description: 'Servidor Local',
       },
     ],
@@ -30,7 +30,7 @@ const options = {
     },
     // --- DEFINICIÓN MANUAL DE ENDPOINTS ---
     paths: {
-      // 1. AUTENTICACIÓN
+      // --- 1. AUTENTICACIÓN ---
       '/auth/register': {
         post: {
           tags: ['Autenticación'],
@@ -93,21 +93,62 @@ const options = {
           }
         }
       },
+      '/auth/logout': {
+        post: {
+          tags: ['Autenticación'],
+          summary: 'Cerrar Sesión',
+          description: 'Instrucción para que el cliente descarte el token (Stateless).',
+          responses: {
+            200: { 
+              description: 'Sesión cerrada correctamente.',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      message: { type: 'string', example: 'Sesión cerrada exitosamente' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
 
-      // 2. BÓVEDA DE CREDENCIALES (Requieren Token)
+      // --- 2. BÓVEDA DE CREDENCIALES (Requieren Token) ---
       '/credentials': {
         get: {
           tags: ['Bóveda'],
           summary: 'Obtener todas las credenciales',
-          security: [{ bearerAuth: [] }], // Candado Cerrado
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'header',
+              name: 'x-secret-key',
+              schema: { type: 'string' },
+              required: true,
+              description: 'Clave Maestra para descifrar los datos'
+            }
+          ],
           responses: {
-            200: { description: 'Lista de credenciales (descifradas o resumen).' }
+            200: { description: 'Lista de credenciales descifradas.' },
+            400: { description: 'Falta x-secret-key.' }
           }
         },
         post: {
           tags: ['Bóveda'],
           summary: 'Guardar nueva credencial',
           security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'header',
+              name: 'x-secret-key',
+              schema: { type: 'string' },
+              required: true,
+              description: 'Clave Maestra para cifrar los datos'
+            }
+          ],
           requestBody: {
             required: true,
             content: {
@@ -131,24 +172,19 @@ const options = {
         }
       },
       '/credentials/{id}': {
-        get: {
-          tags: ['Bóveda'],
-          summary: 'Obtener una credencial específica',
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            { in: 'path', name: 'id', required: true, schema: { type: 'integer' } }
-          ],
-          responses: {
-            200: { description: 'Datos de la credencial descifrados.' },
-            404: { description: 'Credencial no encontrada.' }
-          }
-        },
         put: {
           tags: ['Bóveda'],
           summary: 'Actualizar una credencial',
           security: [{ bearerAuth: [] }],
           parameters: [
-            { in: 'path', name: 'id', required: true, schema: { type: 'integer' } }
+            { in: 'path', name: 'id', required: true, schema: { type: 'integer' } },
+            {
+              in: 'header',
+              name: 'x-secret-key',
+              schema: { type: 'string' },
+              required: true,
+              description: 'Clave Maestra para re-cifrar los datos'
+            }
           ],
           requestBody: {
             content: {
@@ -156,7 +192,11 @@ const options = {
                 schema: {
                   type: 'object',
                   properties: {
-                    password: { type: 'string', example: 'NuevaClave2025' }
+                    site_name: { type: 'string', example: 'Netflix' },
+                    site_url: { type: 'string', example: 'https://netflix.com' },
+                    username: { type: 'string', example: 'juan@gmail.com' },
+                    password: { type: 'string', example: 'NuevaClave2025' },
+                    notes: { type: 'string', example: 'Actualizado' }
                   }
                 }
               }
@@ -180,7 +220,7 @@ const options = {
       }
     },
   },
-  apis: [], // Dejamos esto vacío porque definimos todo arriba manualmente
+  apis: [], 
 };
 
 const swaggerSpec = swaggerJsdoc(options);
