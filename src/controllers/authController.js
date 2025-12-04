@@ -1,33 +1,28 @@
 // src/controllers/authController.js
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken'); // Importante para generar el token
+const jwt = require('jsonwebtoken');
 const defineUser = require('../models/User');
 const sequelize = require('../config/database');
 
-// Inicializamos el modelo
 const User = defineUser(sequelize);
 
-// --- 1. FUNCIÓN DE REGISTRO ---
+// 1. REGISTRO
 const register = async (req, res) => {
     try {
         const { email, password } = req.body;
 
-        // Validar datos de entrada
         if (!email || !password) {
             return res.status(400).json({ error: 'Faltan datos: email y password son obligatorios' });
         }
 
-        // Verificar si el usuario ya existe
         const existingUser = await User.findOne({ where: { email } });
         if (existingUser) {
             return res.status(400).json({ error: 'El correo ya está registrado' });
         }
 
-        // Encriptar contraseña
         const salt = await bcrypt.genSalt(10);
         const passwordHash = await bcrypt.hash(password, salt);
 
-        // Guardar en Base de Datos (Usando los nombres correctos de las columnas)
         const newUser = await User.create({
             email: email,
             master_hash: passwordHash,
@@ -45,37 +40,31 @@ const register = async (req, res) => {
     }
 };
 
-// --- 2. FUNCIÓN DE LOGIN (NUEVA) ---
+// 2. LOGIN
 const login = async (req, res) => {
     try {
         const { email, password } = req.body;
 
-        // Validar que vengan los datos
         if (!email || !password) {
             return res.status(400).json({ error: 'Email y password son obligatorios' });
         }
 
-        // A. Buscar al usuario en la BD
         const user = await User.findOne({ where: { email } });
         if (!user) {
             return res.status(401).json({ error: 'Credenciales inválidas' });
         }
 
-        // B. Comparar contraseña (Texto plano vs Hash guardado)
         const validPassword = await bcrypt.compare(password, user.master_hash);
         if (!validPassword) {
             return res.status(401).json({ error: 'Credenciales inválidas' });
         }
 
-        // C. Generar el Token (JWT)
-        // Guardamos el ID del usuario en el token para identificarlo después
         const token = jwt.sign(
             { id: user.id, email: user.email }, 
             process.env.JWT_SECRET, 
-            { expiresIn: '1h' } // El token expira en 1 hora
+            { expiresIn: '1h' } 
         );
 
-        // Responder con el token
         res.json({ 
             message: 'Login exitoso',
             token: token 
@@ -87,5 +76,11 @@ const login = async (req, res) => {
     }
 };
 
-// Exportamos ambas funciones
-module.exports = { register, login };
+// 3. LOGOUT (NUEVO)
+const logout = (req, res) => {
+    // En JWT, el servidor no necesita borrar nada de la BD.
+    // Solo le confirmamos al cliente que puede borrar su token.
+    res.status(200).json({ message: 'Sesión cerrada exitosamente' });
+};
+
+module.exports = { register, login, logout };
