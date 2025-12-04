@@ -4,20 +4,17 @@ const { encrypt, decrypt } = require('../utils/encryption');
 const defineCredential = require('../models/Credential');
 const sequelize = require('../config/database');
 
-// Inicializar el modelo
 const Credential = defineCredential(sequelize);
 
-// --- UTILIDAD: Generar llave de 32 bytes desde un texto ---
-// Esto permite que el usuario envíe "MiSecreto" y lo convirtamos en una llave válida para AES
+// --- UTILIDAD ---
 function deriveKey(password) {
     return crypto.createHash('sha256').update(password).digest();
 }
 
-// --- 1. LÓGICA PURA (Ya la tenías) ---
+// --- LÓGICA DE NEGOCIO ---
 function addCredentialLogic(data, masterKey) {
     try {
         const { site_name, site_url, username, password, notes } = data;
-        
         const cipherPass = encrypt(password, masterKey);
         const cipherUser = encrypt(username, masterKey);
         const cipherNotes = notes ? encrypt(notes, masterKey) : { content: "" };
@@ -32,76 +29,111 @@ function addCredentialLogic(data, masterKey) {
             auth_tag: cipherPass.authTag
         };
     } catch (error) {
-        throw new Error("Error cifrando credencial: " + error.message);
+        throw new Error("Error cifrando: " + error.message);
     }
 }
 
 function decryptCredentialLogic(credentialDb, masterKey) {
     try {
+        // 1. Descifrar Password
         const secureBlobPass = {
             content: credentialDb.enc_password,
             iv: credentialDb.iv,
             authTag: credentialDb.auth_tag
         };
         const decryptedPass = decrypt(secureBlobPass, masterKey);
-        if (!decryptedPass) throw new Error("Integridad corrupta o clave incorrecta");
+        if (!decryptedPass) return null; // Si falla la firma, ignoramos este registro
 
-        // También desciframos el usuario (opcional, pero recomendado)
-        // Por simplicidad en este MVP, retornamos el pass descifrado
+        // 2. Descifrar Usuario (si existe)
+        let decryptedUser = credentialDb.enc_username;
+        if (credentialDb.enc_username) {
+             const secureBlobUser = {
+                content: credentialDb.enc_username,
+                iv: credentialDb.iv, // Reusamos IV por simplicidad en este diseño MVP
+                authTag: credentialDb.auth_tag 
+            };
+            // Nota: En un diseño prod, cada campo debería tener su IV/Tag, 
+            // pero para este MVP asumimos que 'enc_username' se puede leer o devolvemos el blob.
+            // Para simplificar y evitar errores de IV reusado en la desencriptación estricta,
+            // en este paso del tutorial devolveremos el username cifrado visualmente
+            // O, si usamos el mismo IV/Tag del insert, intentamos descifrar:
+             const tryUser = decrypt(secureBlobUser, masterKey);
+             if(tryUser) decryptedUser = tryUser;
+        }
+
         return {
             id: credentialDb.id,
             site_name: credentialDb.site_name,
-            username: "UsuarioCifrado", // Podrías descifrarlo también si quisieras
-            password: decryptedPass
+            site_url: credentialDb.site_url,
+            username: decryptedUser, 
+            password: decryptedPass, // ¡Aquí está la contraseña real!
+            notes: "Nota cifrada" // Simplificación para el ejercicio
         };
     } catch (error) {
         return null;
     }
 }
 
-// --- 2. CONTROLADORES EXPRESS (Nuevos) ---
+// --- CONTROLADORES EXPORTABLES ---
 
+// 1. Guardar (POST)
 const createCredential = async (req, res) => {
     try {
-        // A. Obtener datos
-        const userId = req.user.id; // Viene del Token (Middleware)
+        const userId = req.user.id;
         const { site_name, site_url, username, password, notes } = req.body;
-        
-        // B. Obtener la Clave Maestra del Header
-        // El usuario debe enviar un header "x-secret-key" para cifrar sus datos
         const userKeyRaw = req.headers['x-secret-key'];
         
-        if (!userKeyRaw) {
-            return res.status(400).json({ error: 'Falta la cabecera "x-secret-key" para cifrar' });
-        }
+        if (!userKeyRaw) return res.status(400).json({ error: 'Falta x-secret-key' });
         
-        const masterKey = deriveKey(userKeyRaw); // Convertimos texto a 32 bytes
+        const masterKey = deriveKey(userKeyRaw);
 
-        // C. Cifrar los datos (Usando tu lógica existente)
         const encryptedData = addCredentialLogic(
             { site_name, site_url, username, password, notes }, 
             masterKey
         );
 
-        // D. Guardar en Base de Datos
         const newCredential = await Credential.create({
             user_id: userId,
             ...encryptedData
         });
 
-        res.status(201).json({ 
-            message: 'Credencial cifrada y guardada exitosamente', 
-            id: newCredential.id 
-        });
+        res.status(201).json({ message: 'Guardado', id: newCredential.id });
 
     } catch (error) {
-        console.error("Error guardando credencial:", error);
-        res.status(500).json({ error: 'Error al guardar la credencial' });
+        console.error(error);
+        res.status(500).json({ error: 'Error guardando' });
+    }
+};
+
+// 2. Obtener Todas (GET) - ¡NUEVO!
+const getAllCredentials = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const userKeyRaw = req.headers['x-secret-key'];
+
+        if (!userKeyRaw) {
+            return res.status(400).json({ error: 'Falta x-secret-key para descifrar tu bóveda' });
+        }
+
+        const masterKey = deriveKey(userKeyRaw);
+
+        // 1. Buscar todo lo de este usuario
+        const credentials = await Credential.findAll({ where: { user_id: userId } });
+
+        // 2. Descifrar una por una
+        const decryptedList = credentials.map(cred => {
+            return decryptCredentialLogic(cred, masterKey);
+        }).filter(cred => cred !== null); // Quitar las que no se pudieron descifrar
+
+        res.json(decryptedList);
+
+    } catch (error) {
+        console.error("Error leyendo bóveda:", error);
+        res.status(500).json({ error: 'Error al leer la bóveda' });
     }
 };
 
 module.exports = { 
-    addCredentialLogic, 
-    decryptCredentialLogic,
-    createCredential // Exportamos la nueva función
+    createCredential, 
+    getAllCredentials 
 };
