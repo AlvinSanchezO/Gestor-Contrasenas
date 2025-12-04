@@ -1,51 +1,47 @@
 // src/controllers/authController.js
-const argon2 = require('argon2');
-const crypto = require('node:crypto');
+const bcrypt = require('bcryptjs');
+const defineUser = require('../models/User');
+const sequelize = require('../config/database');
 
-// Configuración de seguridad para Argon2 (Estándar OWASP)
-const ARGON_CONFIG = {
-    type: argon2.argon2id,
-    memoryCost: 2 ** 16, // 64 MB de memoria
-    timeCost: 3,         // 3 iteraciones
-    parallelism: 1       // 1 hilo
-};
+// Inicializamos el modelo
+const User = defineUser(sequelize);
 
-/**
- * Lógica para REGISTRAR un nuevo usuario
- * Genera el hash y la salt necesaria para el cifrado futuro.
- */
-const registerLogic = async (email, masterPassword) => {
+const register = async (req, res) => {
     try {
-        // 1. Generar una SALT aleatoria para el usuario (se usará para cifrar datos después)
-        // Convertimos a Hex para guardarlo fácil en SQL
-        const kdfSalt = crypto.randomBytes(32).toString('hex');
+        const { email, password } = req.body;
 
-        // 2. Hashear la contraseña maestra
-        const hash = await argon2.hash(masterPassword, ARGON_CONFIG);
+        // 1. Validar que vengan los datos
+        if (!email || !password) {
+            return res.status(400).json({ error: 'Faltan datos: email y password son obligatorios' });
+        }
 
-        // Retornamos el objeto listo para guardarse en la BD
-        return {
+        // 2. Verificar si el usuario ya existe
+        const existingUser = await User.findOne({ where: { email } });
+        if (existingUser) {
+            return res.status(400).json({ error: 'El correo ya está registrado' });
+        }
+
+        // 3. Encriptar la contraseña (Hashing)
+        const salt = await bcrypt.genSalt(10);
+        const passwordHash = await bcrypt.hash(password, salt);
+
+        // 4. Guardar en la Base de Datos
+        // CORRECCIÓN AQUÍ: Usamos los nombres exactos del modelo User.js
+        const newUser = await User.create({
             email: email,
-            master_hash: hash,
-            kdf_salt: kdfSalt
-        };
+            master_hash: passwordHash, // Antes decía password_hash
+            kdf_salt: salt             // Antes decía salt
+        });
+
+        res.status(201).json({ 
+            message: 'Usuario registrado exitosamente', 
+            userId: newUser.id 
+        });
+
     } catch (error) {
-        throw new Error("Error al procesar el registro: " + error.message);
+        console.error("Error en registro:", error); // Esto nos ayuda a ver errores futuros
+        res.status(500).json({ error: 'Error en el servidor al registrar usuario' });
     }
 };
 
-/**
- * Lógica para LOGIN
- * Verifica si la contraseña coincide con el hash.
- */
-const loginLogic = async (inputPassword, storedHash) => {
-    try {
-        // argon2.verify devuelve true o false
-        const isValid = await argon2.verify(storedHash, inputPassword);
-        return isValid;
-    } catch (error) {
-        throw new Error("Error en verificación: " + error.message);
-    }
-};
-
-module.exports = { registerLogic, loginLogic };
+module.exports = { register };
