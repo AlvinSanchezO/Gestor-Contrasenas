@@ -9,4 +9,8 @@ router.post('/register', authController.register);
 // Ruta para Iniciar Sesión (POST /api/auth/login)
 router.post('/login', authController.login);
 
+// Logout 
+router.post('/logout', authController.logout);
+
 module.exports = router;
+
