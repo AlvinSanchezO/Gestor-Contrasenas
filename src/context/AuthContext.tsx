@@ -2,10 +2,9 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import type { ReactNode } from "react";
 
 interface User {
-  id: string;
-  username: string;
+  id?: string;
+  username?: string;
   email: string;
-  rol?: string;
 }
 
 interface AuthContextType {
@@ -13,7 +12,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   loading: boolean;
   errors: string[];
-  login: (user: any) => Promise<void>;
+  login: (userData: { email: string; password: string }) => Promise<boolean>;
   logout: () => void;
 }
 
@@ -32,84 +31,113 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [errors, setErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Variable de entorno (Asegúrate de que en .env sea algo como: http://localhost:3000)
-  const ENV_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
-  // Quitamos la barra final si el usuario la puso por error para evitar //api
-  const API_URL = ENV_URL.replace(/\/$/, "");
+  // Fallback seguro si no existe la variable de entorno
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
-  // --- LOGIN ---
-  const login = async (userData: any) => {
+  // --- HELPER: DECODIFICAR JWT (Para leer datos del usuario sin librería externa) ---
+  const parseJwt = (token: string) => {
     try {
-      console.log("🔵 Intentando login en:", `${API_URL}/api/v1/auth/iniciar`);
-      
-      const res = await fetch(`${API_URL}/api/v1/auth/iniciar`, {
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join(''));
+      return JSON.parse(jsonPayload);
+    } catch (e) {
+      console.error("Error al decodificar token:", e);
+      return null;
+    }
+  };
+
+  // --- FUNCIÓN DE LOGIN ---
+  const login = async (userData: { email: string; password: string }): Promise<boolean> => {
+    try {
+      // 1. Limpiar URL y construir endpoint
+      const baseUrl = API_URL.replace(/\/$/, ""); 
+      const url = `${baseUrl}/api/auth/login`;
+
+      console.log("📡 [Auth] Intentando login en:", url);
+
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(userData),
-        credentials: "include", // IMPORTANTE: Esto requiere CORS bien configurado en backend
       });
+
+      console.log("📡 [Auth] Estado respuesta:", res.status);
 
       const data = await res.json();
 
       if (!res.ok) {
-        // Si el backend responde con error (ej. 401, 400)
-        setErrors([data.mensaje || "Error al iniciar sesión"]);
-        return;
+        const msg = data.error || data.message || "Error al iniciar sesión";
+        console.warn("❌ [Auth] Login falló:", msg);
+        setErrors([msg]);
+        return false;
       }
 
-      console.log("✅ Login exitoso:", data);
-      setUser(data.user || data); // Ajusta según cómo responda tu backend
+      // 2. Guardar Token
+      localStorage.setItem("token", data.token);
+      
+      // 3. Decodificar Token para obtener datos reales del usuario
+      const decodedUser = parseJwt(data.token);
+      console.log("✅ [Auth] Login exitoso. Usuario detectado:", decodedUser);
+
+      // 4. Actualizar estado con datos reales del token (backend)
+      setUser({ 
+        id: decodedUser?.id,
+        email: decodedUser?.email || userData.email,
+        username: decodedUser?.email?.split('@')[0] // Generar un username temporal basado en el email
+      }); 
+      
       setIsAuthenticated(true);
       setErrors([]);
-    } catch (error: any) {
-      // Aquí cae si el servidor está apagado o si hay bloqueo de CORS
-      console.error("❌ Error de conexión (detalles):", error);
       
-      if (error.message === "Failed to fetch") {
-        setErrors(["No se pudo conectar al servidor. Revisa si está encendido o si es un error de CORS."]);
-      } else {
-        setErrors([error.message || "Error de conexión desconocido"]);
-      }
+      return true; 
+    } catch (error) {
+      console.error("❌ [Auth] Error de conexión:", error);
+      setErrors(["No se pudo conectar con el servidor"]);
+      return false;
     }
   };
 
-  // --- LOGOUT ---
   const logout = () => {
+    console.log("👋 [Auth] Cerrando sesión...");
+    localStorage.removeItem("token");
+    localStorage.removeItem("secretKey");
     setUser(null);
     setIsAuthenticated(false);
-    setErrors([]);
-    // Opcional: Fetch al backend para borrar cookie
   };
 
-  // --- VERIFICAR SESIÓN (CHECK LOGIN) ---
+  // --- VERIFICAR SESIÓN AL CARGAR (Persistencia) ---
   useEffect(() => {
-    const checkLogin = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/v1/auth/verify`, {
-          method: "GET",
-          credentials: "include", // Envía la cookie para verificar
-        });
-
-        if (!res.ok) {
-          throw new Error("Token inválido o no autenticado");
-        }
-
-        const data = await res.json();
+    const checkLogin = () => {
+      const token = localStorage.getItem("token");
+      
+      if (token) {
+        const decodedUser = parseJwt(token);
         
-        // Si backend verifica OK:
-        setIsAuthenticated(true);
-        setUser(data.user || data); 
-        setLoading(false);
-      } catch (error) {
-        // No hay sesión activa o falló la verificación
+        // Verificamos si el token tiene estructura válida (ej. tiene expiración 'exp')
+        if (decodedUser && decodedUser.exp * 1000 > Date.now()) {
+            console.log("🔄 [Auth] Sesión restaurada para:", decodedUser.email);
+            setIsAuthenticated(true);
+            setUser({ 
+                id: decodedUser.id,
+                email: decodedUser.email,
+                username: decodedUser.email.split('@')[0]
+            }); 
+        } else {
+            console.warn("⚠️ [Auth] Token expirado o inválido. Cerrando sesión.");
+            logout();
+        }
+      } else {
         setIsAuthenticated(false);
         setUser(null);
-        setLoading(false);
       }
+      setLoading(false);
     };
-
+    
     checkLogin();
-  }, [API_URL]);
+  }, []);
 
   return (
     <AuthContext.Provider

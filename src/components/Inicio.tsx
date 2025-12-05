@@ -8,14 +8,14 @@ const Inicio = () => {
   return (
     <div className="fixed inset-0 w-full h-screen bg-[#09090b] overflow-y-auto text-white font-sans">
       
-      {/* Luces de fondo animadas (igual que Login y Registro) */}
+      {/* Luces de fondo animadas */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-[-20%] left-[-20%] w-[900px] h-[900px] bg-blue-600/30 rounded-full blur-[140px] animate-pulse"></div>
         <div className="absolute bottom-[-20%] right-[-20%] w-[1000px] h-[1000px] bg-purple-600/20 rounded-full blur-[140px] animate-pulse delay-1000"></div>
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] bg-indigo-600/10 rounded-full blur-[120px]"></div>
       </div>
 
-      {/* Navbar elegante y cómoda */}
+      {/* Navbar */}
       <nav className="relative z-50 border-b border-white/10 bg-black/40 backdrop-blur-2xl">
         <div className="max-w-7xl mx-auto px-6 lg:px-10 py-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -41,10 +41,9 @@ const Inicio = () => {
         </div>
       </nav>
 
-      {/* Contenido principal – Tamaño ideal */}
+      {/* Contenido principal */}
       <main className="relative z-10 max-w-6xl mx-auto px-6 lg:px-10 py-12">
 
-        {/* Bienvenida grande y bonita */}
         <div className="text-center mb-14">
           <h1 className="text-5xl md:text-4xl font-bold mb-4">
             Hola,{" "}
@@ -52,10 +51,9 @@ const Inicio = () => {
               {user?.username || "Usuario"}
             </span>
           </h1>
-          <p className="text-xl text-gray-300   md:text-1xl  ">Tu bóveda personal está protegida y lista</p>
+          <p className="text-xl text-gray-300">Tu bóveda personal está protegida y lista</p>
         </div>
 
-        {/* Grid de tarjetas – Tamaño perfecto */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
 
           {/* Tarjeta 1: Seguridad */}
@@ -98,7 +96,7 @@ const Inicio = () => {
             </div>
           </div>
 
-          {/* Tarjeta 3: Acceso al gestor (más grande y destacada) */}
+          {/* Tarjeta 3: Acceso al gestor */}
           <div className="md:col-span-2 xl:col-span-3 bg-gradient-to-r from-blue-600/25 via-purple-600/20 to-pink-600/10 border border-white/10 rounded-3xl p-10 backdrop-blur-2xl">
             <div className="flex flex-col lg:flex-row items-center justify-between gap-8 text-center lg:text-left">
               <div className="max-w-2xl">
@@ -109,14 +107,17 @@ const Inicio = () => {
               </div>
 
               <div className="flex flex-col sm:flex-row gap-5 w-full lg:w-auto">
+                {/* BOTÓN 1: Redirige a la lista de contraseñas */}
                 <Link
-                  to="/passwords"
+                  to="/PasswordList" 
                   className="px-10 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-lg rounded-2xl shadow-2xl shadow-blue-900/50 transition-all hover:scale-105 active:scale-95"
                 >
                   Ver Mis Contraseñas
                 </Link>
+
+                {/* BOTÓN 2: Redirige al formulario de nueva contraseña */}
                 <Link
-                  to="/passwords/new"
+                  to="/add-password"
                   className="px-10 py-4 bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold text-lg rounded-2xl transition-all hover:scale-105 active:scale-95 backdrop-blur-sm"
                 >
                   + Agregar Nueva
