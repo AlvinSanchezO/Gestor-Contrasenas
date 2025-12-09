@@ -1,10 +1,7 @@
 // src/controllers/credentialController.js
 const crypto = require('node:crypto');
 const { encrypt, decrypt } = require('../utils/encryption');
-const defineCredential = require('../models/Credential');
-const sequelize = require('../config/database');
-
-const Credential = defineCredential(sequelize);
+const { Credential } = require('../models');
 
 // --- UTILIDAD ---
 function deriveKey(password) {
@@ -58,15 +55,28 @@ function decryptCredentialLogic(credentialDb, masterKey) {
              if(tryUser) decryptedUser = tryUser;
         }
 
+        // Descifrar Notas
+        let decryptedNotes = "";
+        if (credentialDb.enc_notes && credentialDb.enc_notes.trim()) {
+            const secureBlobNotes = {
+                content: credentialDb.enc_notes,
+                iv: credentialDb.iv,
+                authTag: credentialDb.auth_tag
+            };
+            const tryNotes = decrypt(secureBlobNotes, masterKey);
+            if (tryNotes) decryptedNotes = tryNotes;
+        }
+
         return {
             id: credentialDb.id,
             site_name: credentialDb.site_name,
             site_url: credentialDb.site_url,
             username: decryptedUser, 
             password: decryptedPass, 
-            notes: "Nota cifrada" 
+            notes: decryptedNotes
         };
     } catch (error) {
+        console.error('[Decrypt] Error descifando credencial:', error.message);
         return null;
     }
 }
@@ -77,10 +87,11 @@ function decryptCredentialLogic(credentialDb, masterKey) {
 const createCredential = async (req, res) => {
     try {
         const userId = req.user.id;
+        const userKeyRaw = req.masterKey; // Viene del middleware validateMasterKey
         const { site_name, site_url, username, password, notes } = req.body;
         
-        const userKeyRaw = req.headers['x-secret-key'];
-        if (!userKeyRaw) return res.status(400).json({ error: 'Falta x-secret-key' });
+        console.log(`[Credentials] 📝 Solicitud de crear credencial para usuario ${userId}`);
+        console.log(`[Credentials] Sitio: ${site_name}`);
         
         const masterKey = deriveKey(userKeyRaw);
 
@@ -94,10 +105,15 @@ const createCredential = async (req, res) => {
             ...encryptedData
         });
 
-        res.status(201).json({ message: 'Guardado', id: newCredential.id });
+        console.log(`[Credentials] ✅ Credencial creada exitosamente. ID: ${newCredential.id}`);
+        res.status(201).json({ 
+            message: 'Credencial guardada exitosamente', 
+            id: newCredential.id,
+            site_name: newCredential.site_name
+        });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error guardando' });
+        console.error(`[Credentials] ❌ Error al crear credencial:`, error.message);
+        res.status(500).json({ error: 'Error guardando credencial' });
     }
 };
 
@@ -105,13 +121,15 @@ const createCredential = async (req, res) => {
 const getAllCredentials = async (req, res) => {
     try {
         const userId = req.user.id;
-        const userKeyRaw = req.headers['x-secret-key'];
+        const userKeyRaw = req.masterKey; // Viene del middleware validateMasterKey
 
-        if (!userKeyRaw) return res.status(400).json({ error: 'Falta x-secret-key' });
+        console.log(`[Credentials] 📋 Solicitud de obtener credenciales para usuario ${userId}`);
 
         const masterKey = deriveKey(userKeyRaw);
 
         const credentials = await Credential.findAll({ where: { user_id: userId } });
+
+        console.log(`[Credentials] ✅ Se encontraron ${credentials.length} credenciales`);
 
         const decryptedList = credentials.map(cred => {
             return decryptCredentialLogic(cred, masterKey);
@@ -119,7 +137,7 @@ const getAllCredentials = async (req, res) => {
 
         res.json(decryptedList);
     } catch (error) {
-        console.error(error);
+        console.error(`[Credentials] ❌ Error al obtener credenciales:`, error.message);
         res.status(500).json({ error: 'Error leyendo bóveda' });
     }
 };
@@ -130,17 +148,24 @@ const deleteCredential = async (req, res) => {
         const { id } = req.params;
         const userId = req.user.id;
 
-        const credential = await Credential.findOne({ 
+        console.log(`[Credentials] 🗑️ Solicitud de eliminar credencial ID: ${id} para usuario ${userId}`);
+
+        const credential = await Credential.findOne({
             where: { id: id, user_id: userId } 
         });
 
-        if (!credential) return res.status(404).json({ error: 'No encontrado' });
+        if (!credential) {
+            console.log(`[Credentials] ❌ Credencial no encontrada. ID: ${id}`);
+            return res.status(404).json({ error: 'Credencial no encontrada' });
+        }
 
         await credential.destroy();
-        res.json({ message: 'Credencial eliminada correctamente' });
+        
+        console.log(`[Credentials] ✅ Credencial eliminada correctamente. ID: ${id}`);
+        res.json({ message: 'Credencial eliminada exitosamente' });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error eliminando' });
+        console.error(`[Credentials] ❌ Error eliminando credencial:`, error.message);
+        res.status(500).json({ error: 'Error al eliminar la credencial' });
     }
 };
 

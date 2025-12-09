@@ -1,17 +1,27 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const defineUser = require('../models/User');
-const sequelize = require('../config/database');
-
-const User = defineUser(sequelize);
+const crypto = require('crypto');
+const { User } = require('../models');
 
 // 1. REGISTRO
 const register = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, password, masterKey } = req.body;
 
         if (!email || !password) {
             return res.status(400).json({ error: 'Faltan datos: email y password son obligatorios' });
+        }
+
+        if (!masterKey) {
+            return res.status(400).json({ error: 'La Clave Maestra es obligatoria' });
+        }
+
+        if (password.length < 6) {
+            return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+        }
+
+        if (masterKey.length < 6) {
+            return res.status(400).json({ error: 'La Clave Maestra debe tener al menos 6 caracteres' });
         }
 
         const existingUser = await User.findOne({ where: { email } });
@@ -20,20 +30,31 @@ const register = async (req, res) => {
             return res.status(400).json({ error: 'El correo ya está registrado' });
         }
 
+        // --- CONTRASEÑA DE LOGIN ---
         const salt = await bcrypt.genSalt(10);
         const passwordHash = await bcrypt.hash(password, salt);
+
+        // --- CLAVE MAESTRA PARA CIFRADO (independiente) ---
+        const encryptionSalt = crypto.randomBytes(32).toString('hex');
+        
+        // --- HASH DE VALIDACIÓN DE CLAVE MAESTRA ---
+        const masterKeyHash = crypto.createHash('sha256').update(masterKey).digest('hex');
 
         const newUser = await User.create({
             email: email,
             master_hash: passwordHash,
-            kdf_salt: salt
+            encryption_salt: encryptionSalt,
+            master_key_hash: masterKeyHash,
+            kdf_salt: salt  // Legacy, mantenemos para compatibilidad
         });
 
         console.log(`[Backend] ✅ Nuevo usuario registrado: ${email}`);
+        console.log(`[Backend] 🔐 Clave Maestra configurada para cifrado de credenciales`);
 
         res.status(201).json({ 
             message: 'Usuario registrado exitosamente', 
-            userId: newUser.id 
+            userId: newUser.id,
+            hint: 'Recuerda tu Clave Maestra. La necesitarás para acceder a tus credenciales.'
         });
 
     } catch (error) {

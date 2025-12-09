@@ -9,6 +9,9 @@ const port = 3000;
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./src/config/swagger.js');
 
+// Modelos y base de datos
+const { sequelize } = require('./src/models');
+
 // Rutas
 const authRoutes = require('./src/routes/authRoutes');
 const credentialRoutes = require('./src/routes/credentialRoutes');
@@ -18,16 +21,15 @@ const verifyToken = require('./src/middleware/authMiddleware');
 
 // --- MIDDLEWARES GLOBALES ---
 
-// 2. CONFIGURAR CORS
-// Opción A: Permitir todo (Ideal para desarrollo rápido)
-app.use(cors()); 
-
-app.use(cors({
-  origin: 'http://localhost:5173', // O el puerto donde corra tu React
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-secret-key']
-}));
-
+// 2. CONFIGURAR CORS para conexión con Frontend en React
+const corsOptions = {
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-secret-key'],
+  credentials: true, // Permitir cookies/credenciales
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
 
 app.use(express.json()); // Habilitar JSON
 
@@ -55,8 +57,15 @@ app.get('/', (req, res) => {
   res.send('¡Servidor del Gestor de Contraseñas funcionando!');
 });
 
-// --- INICIAR SERVIDOR ---
-app.listen(port, () => {
-  console.log(`\n🚀 Servidor corriendo en http://localhost:${port}`);
-  console.log(`📄 Documentación disponible en http://localhost:${port}/api-docs`);
+// --- INICIALIZAR BASE DE DATOS Y SERVIDOR ---
+sequelize.sync({ alter: false }).then(() => {
+  console.log('✅ Base de datos sincronizada correctamente');
+  
+  app.listen(port, () => {
+    console.log(`\n🚀 Servidor corriendo en http://localhost:${port}`);
+    console.log(`📄 Documentación disponible en http://localhost:${port}/api-docs`);
+  });
+}).catch(error => {
+  console.error('❌ Error al sincronizar la base de datos:', error);
+  process.exit(1);
 });

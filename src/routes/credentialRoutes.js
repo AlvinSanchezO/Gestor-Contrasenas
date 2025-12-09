@@ -3,21 +3,25 @@ const express = require('express');
 const router = express.Router();
 const credentialController = require('../controllers/credentialController');
 const verifyToken = require('../middleware/authMiddleware');
+const validateMasterKey = require('../middleware/masterKeyMiddleware');
 
-// --- PROTECCIÓN GLOBAL ---
-// El "Guardia" se activa aquí. Todas las rutas de abajo requieren Token válido.
+// --- PROTECCIÓN GLOBAL DE AUTENTICACIÓN ---
 router.use(verifyToken);
 
 // 1. Guardar nueva credencial (POST /api/credentials)
-router.post('/', credentialController.createCredential);
+// Requiere Clave Maestra para cifrar
+router.post('/', validateMasterKey, credentialController.createCredential);
 
 // 2. Obtener todas las credenciales (GET /api/credentials)
-router.get('/', credentialController.getAllCredentials);
+// Requiere Clave Maestra para descifrar
+router.get('/', validateMasterKey, credentialController.getAllCredentials);
 
-// 3. Actualizar una credencial (PUT /api/credentials/:id) - ¡NUEVO!
-router.put('/:id', credentialController.updateCredential);
+// 3. Actualizar una credencial (PUT /api/credentials/:id)
+// Requiere Clave Maestra para re-cifrar
+router.put('/:id', validateMasterKey, credentialController.updateCredential);
 
 // 4. Eliminar credencial por ID (DELETE /api/credentials/:id)
+// NO requiere Clave Maestra - solo requiere token de autenticación
 router.delete('/:id', credentialController.deleteCredential);
 
 module.exports = router;
